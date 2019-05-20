@@ -34,7 +34,9 @@ fileprivate class BookmarkFolderTableViewCell: TwoLineTableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
 
-        imageView?.image = UIImage(named: "bookmarkFolder")
+        imageView?.image = UIImage(named: "bookmarkFolder")?.createScaled(CGSize(width: 20, height: 20))
+        imageView?.contentMode = .center
+
         accessoryType = .disclosureIndicator
         separatorInset = .zero
     }
@@ -53,10 +55,9 @@ fileprivate class BookmarkFolderTableViewCell: TwoLineTableViewCell {
     }
 }
 
+@objcMembers
 class BookmarksPanel: SiteTableViewController, LibraryPanel {
     var libraryPanelDelegate: LibraryPanelDelegate?
-
-    let refreshControl = UIRefreshControl()
 
     lazy var longPressRecognizer: UILongPressGestureRecognizer = {
         return UILongPressGestureRecognizer(target: self, action: #selector(didLongPress))
@@ -90,7 +91,6 @@ class BookmarksPanel: SiteTableViewController, LibraryPanel {
 
         tableView.addGestureRecognizer(longPressRecognizer)
         tableView.accessibilityIdentifier = "Bookmarks List"
-        tableView.addSubview(refreshControl)
 
         navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done) { _ in
             self.dismiss(animated: true, completion: nil)
@@ -100,18 +100,14 @@ class BookmarksPanel: SiteTableViewController, LibraryPanel {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
 
-        refreshControl.addTarget(self, action: #selector(didPullToRefresh), for: .valueChanged)
         loadData()
-    }
-
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-
-        refreshControl.removeTarget(self, action: #selector(didPullToRefresh), for: .valueChanged)
     }
 
     override func applyTheme() {
         super.applyTheme()
+        if let current = navigationController?.visibleViewController as? Themeable, current !== self {
+            current.applyTheme()
+        }
     }
 
     override func reloadData() {
@@ -120,7 +116,6 @@ class BookmarksPanel: SiteTableViewController, LibraryPanel {
 
     fileprivate func loadData() {
         profile.places.getBookmarksTree(rootGUID: bookmarkFolderGUID, recursive: false).uponQueue(.main) { result in
-            self.refreshControl.endRefreshing()
 
             guard let folder = result.successValue as? BookmarkFolder else {
                 // TODO: Handle error case?
@@ -175,10 +170,6 @@ class BookmarksPanel: SiteTableViewController, LibraryPanel {
         }
 
         presentContextMenu(for: indexPath)
-    }
-
-    @objc fileprivate func didPullToRefresh() {
-        loadData()
     }
 
     @objc fileprivate func notificationReceived(_ notification: Notification) {

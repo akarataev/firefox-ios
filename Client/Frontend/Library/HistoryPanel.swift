@@ -9,7 +9,6 @@ import XCGLogger
 import WebKit
 
 private struct HistoryPanelUX {
-    static let WelcomeScreenItemTextColor = UIColor.Photon.Grey50
     static let WelcomeScreenItemWidth = 170
     static let IconSize = 23
     static let IconBorderColor = UIColor.Photon.Grey30
@@ -23,6 +22,7 @@ private class FetchInProgressError: MaybeErrorType {
     }
 }
 
+@objcMembers
 class HistoryPanel: SiteTableViewController, LibraryPanel {
     enum Section: Int {
         // Showing synced tabs, showing recently closed, and clearing recent history are action rows of this type.
@@ -262,6 +262,10 @@ class HistoryPanel: SiteTableViewController, LibraryPanel {
         }
 
         profile.history.removeHistoryForURL(site.url).uponQueue(.main) { result in
+            guard site == self.siteForIndexPath(indexPath) else {
+                self.reloadData()
+                return
+            }
             self.tableView.beginUpdates()
             self.groupedSites.remove(site)
             self.tableView.deleteRows(at: [indexPath], with: .right)
@@ -311,6 +315,13 @@ class HistoryPanel: SiteTableViewController, LibraryPanel {
         }
 
         let alert = UIAlertController(title: Strings.ClearHistoryMenuTitle, message: nil, preferredStyle: .actionSheet)
+
+        // This will run on the iPad-only, and sets the alert to be centered with no arrow.
+        if let popoverController = alert.popoverPresentationController {
+            popoverController.sourceView = view
+            popoverController.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 0, height: 0)
+            popoverController.permittedArrowDirections = []
+        }
 
         [(Strings.ClearHistoryMenuOptionTheLastHour, 1),
          (Strings.ClearHistoryMenuOptionToday, 24),
@@ -381,7 +392,6 @@ class HistoryPanel: SiteTableViewController, LibraryPanel {
 
         cell.imageView?.backgroundColor = UIColor.theme.homePanel.historyHeaderIconsBackground
         cell.accessibilityIdentifier = "HistoryPanel.syncedDevicesCell"
-        removeTableSeparator(for: cell)
         return cell
     }
 
@@ -401,18 +411,10 @@ class HistoryPanel: SiteTableViewController, LibraryPanel {
         }
         return cell
     }
-    
-    func removeTableSeparator(for lastCell: UITableViewCell) {
-        lastCell.subviews.forEach { view in
-            if !(view is UIButton) && !(view == lastCell.contentView) {
-                view.removeFromSuperview()
-            }
-        }
-    }
 
     // MARK: - Selector callbacks
 
-    @objc func onNotificationReceived(_ notification: Notification) {
+    func onNotificationReceived(_ notification: Notification) {
         switch notification.name {
         case .FirefoxAccountChanged, .PrivateDataClearedHistory:
             reloadData()
@@ -441,7 +443,7 @@ class HistoryPanel: SiteTableViewController, LibraryPanel {
         }
     }
 
-    @objc func onLongPressGestureRecognized(_ longPressGestureRecognizer: UILongPressGestureRecognizer) {
+    func onLongPressGestureRecognized(_ longPressGestureRecognizer: UILongPressGestureRecognizer) {
         guard longPressGestureRecognizer.state == .began else { return }
         let touchPoint = longPressGestureRecognizer.location(in: tableView)
         guard let indexPath = tableView.indexPathForRow(at: touchPoint) else { return }
@@ -451,7 +453,7 @@ class HistoryPanel: SiteTableViewController, LibraryPanel {
         }
     }
 
-    @objc func onRefreshPulled() {
+    func onRefreshPulled() {
         refreshControl?.beginRefreshing()
         resyncHistory()
     }
@@ -592,11 +594,7 @@ class HistoryPanel: SiteTableViewController, LibraryPanel {
     func updateEmptyPanelState() {
         if groupedSites.isEmpty {
             if emptyStateOverlayView.superview == nil {
-                tableView.addSubview(emptyStateOverlayView)
-                emptyStateOverlayView.snp.makeConstraints { make -> Void in
-                    make.left.right.bottom.equalTo(self.view)
-                    make.top.equalTo(self.view).offset(132)
-                }
+                tableView.tableFooterView = emptyStateOverlayView
             }
         } else {
             tableView.alwaysBounceVertical = true
@@ -606,14 +604,24 @@ class HistoryPanel: SiteTableViewController, LibraryPanel {
 
     func createEmptyStateOverlayView() -> UIView {
         let overlayView = UIView()
-        overlayView.backgroundColor = UIColor.theme.homePanel.panelBackground
+
+        // overlayView becomes the footer view, and for unknown reason, setting the bgcolor is ignored.
+        // Create an explicit view for setting the color.
+        let bgColor = UIView()
+        bgColor.backgroundColor = UIColor.theme.homePanel.panelBackground
+        overlayView.addSubview(bgColor)
+        bgColor.snp.makeConstraints { make in
+            // Height behaves oddly: equalToSuperview fails in this case, as does setting top.equalToSuperview(), simply setting this to ample height works.
+            make.height.equalTo(UIScreen.main.bounds.height)
+            make.width.equalToSuperview()
+        }
 
         let welcomeLabel = UILabel()
         overlayView.addSubview(welcomeLabel)
         welcomeLabel.text = Strings.HistoryPanelEmptyStateTitle
         welcomeLabel.textAlignment = .center
         welcomeLabel.font = DynamicFontHelper.defaultHelper.DeviceFontLight
-        welcomeLabel.textColor = HistoryPanelUX.WelcomeScreenItemTextColor
+        welcomeLabel.textColor = UIColor.theme.homePanel.welcomeScreenText
         welcomeLabel.numberOfLines = 0
         welcomeLabel.adjustsFontSizeToFitWidth = true
 

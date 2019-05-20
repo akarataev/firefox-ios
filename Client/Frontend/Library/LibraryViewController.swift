@@ -23,7 +23,7 @@ class LibraryViewController: UIViewController {
         stackView.axis = .horizontal
         stackView.alignment = .fill
         stackView.distribution = .fillEqually
-        stackView.spacing = 14
+        stackView.spacing = 0
         stackView.clipsToBounds = true
         stackView.accessibilityNavigationStyle = .combined
         stackView.accessibilityLabel = NSLocalizedString("Panel Chooser", comment: "Accessibility label for the Library panel's bottom toolbar containing a list of the home panels (top sites, bookmarks, history, remote tabs, reading list).")
@@ -85,7 +85,6 @@ class LibraryViewController: UIViewController {
                 if index < buttons.count {
                     let currentButton = buttons[index]
                     currentButton.isSelected = false
-                    currentButton.isUserInteractionEnabled = true
                 }
             }
 
@@ -95,15 +94,15 @@ class LibraryViewController: UIViewController {
                 if index < buttons.count {
                     let newButton = buttons[index]
                     newButton.isSelected = true
-                    newButton.isUserInteractionEnabled = false
                 }
 
                 if index < panelDescriptors.count {
-                    let panel = self.panelDescriptors[index].viewController
-                    let navigationController = self.panelDescriptors[index].navigationController
-                    let accessibilityLabel = self.panelDescriptors[index].accessibilityLabel
-                    setupLibraryPanel(panel, accessibilityLabel: accessibilityLabel)
-                    self.showPanel(navigationController)
+                    panelDescriptors[index].setup()
+                    if let panel = self.panelDescriptors[index].viewController, let navigationController = self.panelDescriptors[index].navigationController {
+                        let accessibilityLabel = self.panelDescriptors[index].accessibilityLabel
+                        setupLibraryPanel(panel, accessibilityLabel: accessibilityLabel)
+                        self.showPanel(navigationController)
+                    }
                 }
             }
             self.updateButtonTints()
@@ -118,7 +117,7 @@ class LibraryViewController: UIViewController {
     }
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
-        return .lightContent
+        return ThemeManager.instance.currentName == .dark ? .lightContent : .default
     }
 
     fileprivate func hideCurrentPanel() {
@@ -144,7 +143,16 @@ class LibraryViewController: UIViewController {
 
     @objc func tappedButton(_ sender: UIButton!) {
         for (index, button) in buttons.enumerated() where button == sender {
-            selectedPanel = LibraryPanelType(rawValue: index)
+            let newSelectedPanel = LibraryPanelType(rawValue: index)
+
+            // If we're already on the selected panel and the user has
+            // tapped for a second time, pop it to the root view controller.
+            if newSelectedPanel == selectedPanel {
+                let panel = self.panelDescriptors[safe: index]?.navigationController
+                panel?.popToRootViewController(animated: true)
+            }
+
+            selectedPanel = newSelectedPanel
             if selectedPanel == .bookmarks {
                 UnifiedTelemetry.recordEvent(category: .action, method: .view, object: .bookmarksPanel, value: .homePanelTabButton)
             } else if selectedPanel == .downloads {
@@ -158,7 +166,7 @@ class LibraryViewController: UIViewController {
         for panel in panelDescriptors {
             let button = LibraryPanelButton()
             button.addTarget(self, action: #selector(tappedButton), for: .touchUpInside)
-            if let image = UIImage.templateImageNamed("panelIcon\(panel.imageName)") {
+            if let image = UIImage.templateImageNamed(panel.imageName) {
                 button.setImage(image, for: .normal)
             }
 
@@ -172,12 +180,19 @@ class LibraryViewController: UIViewController {
 
     func updateButtonTints() {
         for (index, button) in self.buttons.enumerated() {
+            let image: String
             if index == self.selectedPanel?.rawValue {
                 button.tintColor = self.buttonSelectedTintColor
                 button.nameLabel.textColor = self.buttonSelectedTintColor
+                image = panelDescriptors[index].activeImageName
             } else {
                 button.tintColor = self.buttonTintColor
                 button.nameLabel.textColor = self.buttonTintColor
+                image = panelDescriptors[index].imageName
+            }
+
+            if let image = UIImage.templateImageNamed(image) {
+                button.setImage(image, for: .normal)
             }
         }
     }
@@ -232,7 +247,7 @@ class LibraryPanelButton: UIButton {
         }
         nameLabel.adjustsFontSizeToFitWidth = true
         nameLabel.minimumScaleFactor = 0.7
-        nameLabel.numberOfLines = 2
+        nameLabel.numberOfLines = 1
         nameLabel.font = DynamicFontHelper.defaultHelper.SmallSizeRegularWeightAS
         nameLabel.textAlignment = .center
     }
@@ -245,19 +260,9 @@ class LibraryPanelButton: UIButton {
 // MARK: UIAppearance
 extension LibraryViewController: Themeable {
     func applyTheme() {
-        func apply(_ vc: UIViewController) -> Bool {
-            guard let vc = vc as? Themeable else { return false }
-            vc.applyTheme()
-            return true
+        panelDescriptors.forEach { item in
+            (item.viewController as? Themeable)?.applyTheme()
         }
-
-        children.forEach {
-            if !apply($0) {
-                // LibraryPanels are nested in a UINavigationController, so go one layer deeper.
-                $0.children.forEach { _ = apply($0) }
-            }
-        }
-
         buttonContainerView.backgroundColor = UIColor.theme.homePanel.toolbarBackground
         view.backgroundColor = UIColor.theme.homePanel.toolbarBackground
         buttonTintColor = UIColor.theme.homePanel.toolbarTint
